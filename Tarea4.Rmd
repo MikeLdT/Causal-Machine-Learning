@@ -1,6 +1,6 @@
 ---
-title: "Targeted Marketing"
-author: "Isidoro Garcia"
+title: "Tarea 4: Targeted Marketing"
+author: "Jorge H, Alexa G, Adrián M, Miguel L, Carlos L."
 date: "2021"
 output: pdf_document
 graphics: yes
@@ -37,7 +37,7 @@ Tip!: En los chunks donde vaya a haber modelos o cálculos complicados, usen `ca
 
 Carguemos los datos de 2015
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 library(tidyverse)
 library(data.table)
 library(gamlr)
@@ -48,10 +48,16 @@ library(RCT)
 library(lfe)
 library(stargazer)
 library(knitr)
+library(reshape2)
+library(corrr)
+library(kableExtra)
+library(broom)
 ```
 
 ```{r, cache=TRUE}
-load("Bases input/Customer-Development-2015.RData")
+setwd("C:/Users/georg/Documents/ITAM/Maestría/2 Semestre/Economía Computacional/Tarea_4")
+
+load("Customer-Development-2015-1.RData")
 ```
 
 Dividimos la base en entrenamiento y validacion. Usamos un seed fijo para replicabilidad.
@@ -69,15 +75,113 @@ crm<-
 
 1. Haz una primera revisión de la base. Cuantas variables tienen `NA`
 
+```{r}
+
+x<-sapply(crm, function (x) sum(is.na(x)))
+
+as.data.frame(x) %>% 
+  filter(x>0)
+
+#map(crm, ~sum(is.na(.)))
+
+```
+Hay múltiples variables con cero, pero ninguna variable tiene `NA`.
+
 
 2. Muestra la matriz de correlación entre variables. Muestra los pares de variables que tienen más de 95% de correlación. Remueve una de cada par multicolineal. 
 
+```{r}
+#Mapa de calor para matriz de correlaciones
+mcor<-round(cor(crm),2)
+
+melt_mcor<-melt(mcor)
+
+heatmap_1<-ggplot(data = melt_mcor, aes(x=Var1, y=Var2, fill=value)) + 
+ scale_fill_gradient2(low = "blue", high = "red")+
+  geom_tile()+ 
+ theme(axis.text.x = element_text(angle = 90, vjust = 1,size = 3, hjust = 1),axis.text.y = element_text(vjust = 1,size = 3, hjust = 1))
+
+print(heatmap_1)
+```
+
+
+```{r}
+#Pares de variables con más de 95%:
+
+res.cor <- correlate(crm)
+
+corrs<-res.cor %>%  
+    gather(-term, key = "colname", value = "cor") %>% 
+    filter(abs(cor) > 0.95)
+
+kable(corrs, caption = "Variables con una correlación elevada")%>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+
+```{r}
+#Removemos una de cada par multicolineal
+
+crm<-crm %>% 
+  select(-customer_type_3, -orders_online_attributed_target, -acquisition_months_since, -in_database_months, -emails_days_2yr, -emailview_6m)
+
+```
 
 
 3 (2 pts). Corroba que la asignación tratamiento fue aleatoria mediante revisión del balance. Realiza las pruebas balance T y F. Cuántas variables salen desbalanceadas? Que muestra esto sobre la asignación de tratamiento?
 
+```{r}
+bt<-balance_table(crm, "mailing_indicator")
+
+kable(bt, caption = "Tabla de Balance")%>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+
+br<- balance_regression(crm, "mailing_indicator")
+kable(br, caption = "Tabla de Balance Conjunta", digits = 4)%>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+
 
 4. Realize un ajuste de False Discovery Rate al 10%. Cuántas variables salen desbalanceadas ahora? 
+```{r}
+datos_pvalue<-br$regression_tables %>% 
+as.data.frame()
+#Crear variable ranking:
+datos_pvalue<-datos_pvalue%>%
+arrange(p.value) %>%
+mutate(ranking = row_number(p.value))
+
+#Gráfica del FDR:
+q<-0.10
+n<-max(datos_pvalue$ranking)
+
+FDR<-ggplot(datos_pvalue,aes(x=ranking,y=p.value))+
+geom_point(color="black")+
+geom_abline( aes(intercept = 0, slope = q/n,color="Ajuste FDR"), size=.6)+
+geom_abline(aes(intercept = 0.05, slope = 0, color="P-value=0.05"), size=.6)+
+ggtitle("Gráfica FDR")+
+theme_bw()+
+labs(color="Legend",title="")
+print(FDR)
+
+
+#Encontrar número de variables singificativas:
+p_values_3<-datos_pvalue%>%
+arrange(p.value) %>%
+mutate(ranking = row_number(p.value),
+  alpha = q*ranking/n,
+  signif_FDR = ifelse(alpha>=p.value,1,0),
+  signif_0.05 = ifelse(0.05>=p.value,1,0))
+
+#Número de variables significativas con FDR es:
+num1<-sum(p_values_3$signif_FDR)
+
+
+#¿PREGUNTAR QUÉ ONDA?
+
+```
 
 
 ### Estimación de impacto de tratamiento (ATE)
@@ -85,8 +189,46 @@ crm<-
 5 (2pts). Estima el impacto promedio de enviar el catalogo vía email. Estima el impacto sin controles y luego agregar dos estimaciones de robustez: 1) Agregando variables que salieron significativas y 2) Agregando variables que salieron significativas con el FDR. Interpreta los resultados 
 
 
+```{r}
+#ASUMIENDO QUE VAR DEP 
+attach(crm)
+ydep<- crm$outcome_spend
 
-#### Estimación de efectos heterogeneos
+
+Mod1<-lm(ydep~mailing_indicator)
+
+
+coef_fdr<-p_values_3 %>% 
+  filter(!term %in% c("(Intercept)","outcome_spend"), signif_FDR==1 ) %>% 
+  pull(term)
+
+
+coef_pval<-p_values_3 %>% 
+  filter(!term %in% c("(Intercept)","outcome_spend"), signif_0.05==1 ) %>% 
+  pull(term)
+
+f <- as.formula(
+  paste("ydep", 
+        paste(coef_fdr, collapse = " + "), 
+        sep = " ~ "))
+g <- as.formula(
+  paste("ydep", 
+        paste(coef_pval, collapse = " + "), 
+        sep = " ~ "))
+
+#Variables significativas por FDR
+
+Mod2<-lm(f, data=crm)
+
+#Variables significativas al 5%:
+Mod3<-lm(g, data=crm)
+
+
+stargazer(Mod1,Mod2,Mod3, type = "text")
+
+```
+
+#### Estimación de efectos heterogéneos
 
 Usaremos el training sample para estimar el Conditional Average Treatment Effect de enviar el catalogo sobre el gasto en dólares. Estimaremos dos tipos de modelos (si agregan otro es bienvenido): 
 
@@ -100,15 +242,162 @@ Separa la base de entrenamiento de la de validación
 
 
 
-####Double Debiased LASSO
+#### Double Debiased LASSO
 
 6 (3pts). Estima un Double Debiased LASSO. Asegurate de mostrar el código. (Tip: recuerda que necesitas guardar el LASSO de cada K para poder usarlo en la base de validación)
+
+```{r}
+#Dividimos la base en K=5 partes de forma aleatoria.
+base_training<-crm %>% 
+  filter(training_sample==1)
+
+
+library(minDiff)
+assigment <- create_groups(as.data.frame(base_training), 
+                           criteria_scale = c("mailing_indicator"), sets_n = 5, repetitions = 1000)
+```
+
+Nuestro intento raro:
+```{r}
+#Quitar variable depenediente de controles X
+lasso_treat <- vector(mode="list", length=5)
+lasso_monto <- vector(mode="list", length=5)
+
+X<-assigment %>% 
+  mutate(k=newSet) %>% 
+  select(-outcome_spend, -mailing_indicator, -newSet)
+
+trat<-assigment %>% 
+  mutate(k=newSet) %>% 
+  select(mailing_indicator,k)
+  
+
+monto_ret<-assigment %>% 
+  mutate(k=newSet) %>% 
+  select(outcome_spend)
+
+modelo<-map_dfr(1:5,
+                function(a) {
+                  treat_fit <-gamlr(x = X[newSet!=a, , drop= F],
+                              y = trat[newSet!=a], family="binomial") 
+                  treat_hat<-as.numeric(predict(treat_fit, newdata = X[newSet==a, , drop= F], type = "response"))
+                  lasso_treat[a]<-treat_fit
+                  
+                  monto_fit <-gamlr(x = X[newSet!=a, , drop= F],
+                                    y =  monto_ret[newSet!=a])
+                  monto_hat<-as.numeric(predict(monto_fit,newdata = X[newSet==a, , drop= F],type ="response"))
+
+                  treat_resid <- trat[k==a]-treat_hat
+                  resid_monto <- monto_ret[k==a]-monto_hat
+                  
+                  fits<-bind_cols("treat_hat" = treat_hat,
+                                  "monto_hat"= monto_hat,
+                                  "resid_treat" = treat_resid,
+                                  "resid_monto" = resid_monto)
+                  
+                  })
+
+# for(i in 1:5){
+#   base<-assigment %>% 
+#     filter(newSet!=i)
+#   
+# }
+```
+
+Intento como isidoro:
+```{r}
+lasso_treat <- vector(mode="list", length=5)
+lasso_monto <- vector(mode="list", length=5)
+
+base_training<-crm %>% 
+  filter(training_sample==1)
+
+
+
+base_training <-base_training%>% 
+  arrange(mailing_indicator)
+
+k<-treatment_assign(data = base_training, share_control = 0.2, n_t = 4, 
+                    strata_varlist = "mailing_indicator",missfits = "global",
+                    seed = 1900, key ="mailing_indicator")$data
+
+k<-k%>% 
+  mutate(k = treat+1)%>% 
+  ungroup()
+
+base_training<-bind_cols(base_training, k %>% select(k))
+
+k<-k$k
+
+
+monto_ret<-base_training$outcome_spend
+treat<-base_training$mailing_indicator
+
+X<-base_training %>% 
+  select(-outcome_spend, -mailing_indicator,-k)
+
+
+modelo<-map_dfr(1:5,
+                function(a) {
+                  
+                  treat_fit <-gamlr(x = X[k!=a, , drop= F],
+                              y = treat[k!=a], family="binomial") 
+                  treat_hat<-as.numeric(predict(treat_fit, newdata = X[k==a, , drop= F], type = "response"))
+                  lasso_treat[[a]]<<-treat_fit
+                  
+                  monto_fit <-gamlr(x = X[k!=a, , drop= F],
+                                    y =  monto_ret[k!=a])
+                  monto_hat<-as.numeric(predict(monto_fit,newdata = X[k==a, , drop= F],type ="response"))
+                  lasso_monto[[a]]<<-monto_fit
+      
+                  treat_resid <- treat[k==a]-treat_hat
+                  resid_monto <- monto_ret[k==a]-monto_hat
+                  
+                  fits<-bind_cols("treat_hat" = treat_hat,
+                                  "monto_hat"= monto_hat,
+                                  "resid_treat" = treat_resid,
+                                  "resid_monto" = resid_monto)
+                  
+                  })
+
+
+
+```
 
 
 7 (2pts). Cuál es el impacto de tratamiento promedio? Estimalo de dos maneras: 1) `spend_resid~treat_hat + treat` y 2) `spend~treat_resid`. Sale lo mismo? Justifica tu respuesta
 
+```{r}
+ef_prom_1<-lm(resid_monto~treat_hat + treat,data = modelo)
+
+
+ef_prom_2<-lm(monto_hat~resid_treat,data = modelo)
+
+stargazer(ef_prom_1,ef_prom_2,type="text")
+```
+
 
 8 (3pts). Cuáles son las variables más importantes para las nuisance functions $T_i = g(X_i)+v_i$ y $y_i=m(X_i)+\epsilon_i$? (Tip: toma las variables que tengan $\beta \neq 0$ en cada $k$ y haz un `inner_join`. De ahí muestra el promedio de los coeficientes) Interpreta la función $g(X_i)$, porque sale así?
+
+
+```{r}
+coefs_treat<-lapply(lasso_treat, function(x) as.data.frame(as.matrix(coef(x)))) 
+coefs_treat<-lapply(coefs_treat, function(x) x %>% filter(.!=0))
+
+coefs_mont<-lapply(lasso_monto, function(x) as.data.frame(as.matrix(coef(x)))) 
+coefs_mont<-lapply(coefs_mont, function(x) x %>% filter(.!=0))
+
+for(i in 1:5){
+  names(coefs_treat[[i]])<-"Coeficientes"
+  names(coefs_mont[[i]])<-"Coeficientes"
+  
+}
+
+
+
+
+```
+
 
 
 9 (3pts). Ahora corre un DDML LASSO para encontrar los efectos a nivel cliente (Tip: interactúa todas las variables con `treat_resid`. Muestra el código. Qué varaibles salen significativas?
@@ -119,7 +408,7 @@ Separa la base de entrenamiento de la de validación
 
 
 
-####Causal Forest
+#### Causal Forest
 
 11 (2pts). Ahora vayamos al causal forest. Estima un causal forest en la base de entrenamiento (Estima 750 árboles)
 

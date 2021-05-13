@@ -16,7 +16,7 @@ knitr::opts_chunk$set(echo = TRUE, comment = NA, message = FALSE,
 
 
 ## Overview
-
+Saludos
 Los contratan como data scientists para una empresa que vende electrodomesticos. La empresa lanzó un experimento de control aleatorio via un mail en donde se envió un catalogo de los productos al grupo de tratamiento `mailing_indicator`. 
 
 Tu objetivo es estimar el impacto del envío sobre el gasto incremental: 

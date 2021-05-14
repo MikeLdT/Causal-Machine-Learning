@@ -55,9 +55,9 @@ library(broom)
 ```
 
 ```{r, cache=TRUE}
-setwd("C:/Users/georg/Documents/ITAM/Maestría/2 Semestre/Economía Computacional/Tarea_4")
+setwd("/Users/adrian_martinez/Dropbox/Maestría/Maestría Clases/Segundo_Semestre/economia_computacional/Causal-Machine-Learning")
 
-load("Customer-Development-2015-1.RData")
+load("./Customer-Development-2015-1.RData")
 ```
 
 Dividimos la base en entrenamiento y validacion. Usamos un seed fijo para replicabilidad.
@@ -92,6 +92,10 @@ Hay múltiples variables con cero, pero ninguna variable tiene `NA`.
 
 ```{r}
 #Mapa de calor para matriz de correlaciones
+
+# Aquí tienen que dejar solo las más correlacionas, es algo que dijo isidoro en
+# clase para que se pueda ver bien el mapa...
+
 mcor<-round(cor(crm),2)
 
 melt_mcor<-melt(mcor)
@@ -123,7 +127,9 @@ kable(corrs, caption = "Variables con una correlación elevada")%>%
 #Removemos una de cada par multicolineal
 
 crm<-crm %>% 
-  select(-customer_type_3, -orders_online_attributed_target, -acquisition_months_since, -in_database_months, -emails_days_2yr, -emailview_6m)
+  select(-customer_type_3, -orders_online_attributed_target, 
+         -acquisition_months_since, -in_database_months, 
+         -emails_days_2yr, -emailview_6m)
 
 ```
 
@@ -133,12 +139,13 @@ crm<-crm %>%
 ```{r}
 bt<-balance_table(crm, "mailing_indicator")
 
-kable(bt, caption = "Tabla de Balance")%>%
+kable(bt, caption = "Tabla de Balance") %>%
   kable_classic(full_width = F, html_font = "Cambria")
 
 
 br<- balance_regression(crm, "mailing_indicator")
-kable(br, caption = "Tabla de Balance Conjunta", digits = 4)%>%
+
+kable(br, caption = "Tabla de Balance Conjunta", digits = 4) %>%
   kable_classic(full_width = F, html_font = "Cambria")
 
 ```
@@ -190,8 +197,6 @@ num1<-sum(p_values_3$signif_FDR)
 
 
 ```{r}
-#ASUMIENDO QUE VAR DEP 
-attach(crm)
 ydep<- crm$outcome_spend
 
 
@@ -250,61 +255,8 @@ Separa la base de entrenamiento de la de validación
 #Dividimos la base en K=5 partes de forma aleatoria.
 base_training<-crm %>% 
   filter(training_sample==1)
-
-
-library(minDiff)
-assigment <- create_groups(as.data.frame(base_training), 
-                           criteria_scale = c("mailing_indicator"), sets_n = 5, repetitions = 1000)
 ```
 
-Nuestro intento raro:
-```{r}
-#Quitar variable depenediente de controles X
-lasso_treat <- vector(mode="list", length=5)
-lasso_monto <- vector(mode="list", length=5)
-
-X<-assigment %>% 
-  mutate(k=newSet) %>% 
-  select(-outcome_spend, -mailing_indicator, -newSet)
-
-trat<-assigment %>% 
-  mutate(k=newSet) %>% 
-  select(mailing_indicator,k)
-  
-
-monto_ret<-assigment %>% 
-  mutate(k=newSet) %>% 
-  select(outcome_spend)
-
-modelo<-map_dfr(1:5,
-                function(a) {
-                  treat_fit <-gamlr(x = X[newSet!=a, , drop= F],
-                              y = trat[newSet!=a], family="binomial") 
-                  treat_hat<-as.numeric(predict(treat_fit, newdata = X[newSet==a, , drop= F], type = "response"))
-                  lasso_treat[a]<-treat_fit
-                  
-                  monto_fit <-gamlr(x = X[newSet!=a, , drop= F],
-                                    y =  monto_ret[newSet!=a])
-                  monto_hat<-as.numeric(predict(monto_fit,newdata = X[newSet==a, , drop= F],type ="response"))
-
-                  treat_resid <- trat[k==a]-treat_hat
-                  resid_monto <- monto_ret[k==a]-monto_hat
-                  
-                  fits<-bind_cols("treat_hat" = treat_hat,
-                                  "monto_hat"= monto_hat,
-                                  "resid_treat" = treat_resid,
-                                  "resid_monto" = resid_monto)
-                  
-                  })
-
-# for(i in 1:5){
-#   base<-assigment %>% 
-#     filter(newSet!=i)
-#   
-# }
-```
-
-Intento como isidoro:
 ```{r}
 lasso_treat <- vector(mode="list", length=5)
 lasso_monto <- vector(mode="list", length=5)
@@ -342,13 +294,17 @@ modelo<-map_dfr(1:5,
                   
                   treat_fit <-gamlr(x = X[k!=a, , drop= F],
                               y = treat[k!=a], family="binomial") 
-                  treat_hat<-as.numeric(predict(treat_fit, newdata = X[k==a, , drop= F], type = "response"))
-                  lasso_treat[[a]]<<-treat_fit
+                  treat_hat<-as.numeric(predict(treat_fit, 
+                                                newdata = X[k==a, , drop= F], 
+                                                type = "response"))
+                  lasso_treat[[a]] <<- treat_fit
                   
-                  monto_fit <-gamlr(x = X[k!=a, , drop= F],
+                  monto_fit <- gamlr(x = X[k!=a, , drop= F],
                                     y =  monto_ret[k!=a])
-                  monto_hat<-as.numeric(predict(monto_fit,newdata = X[k==a, , drop= F],type ="response"))
-                  lasso_monto[[a]]<<-monto_fit
+                  monto_hat <- as.numeric(predict(monto_fit,newdata = X[k==a, , 
+                                                                        drop= F],
+                                                  type ="response"))
+                  lasso_monto[[a]] <<- monto_fit
       
                   treat_resid <- treat[k==a]-treat_hat
                   resid_monto <- monto_ret[k==a]-monto_hat
@@ -357,7 +313,6 @@ modelo<-map_dfr(1:5,
                                   "monto_hat"= monto_hat,
                                   "resid_treat" = treat_resid,
                                   "resid_monto" = resid_monto)
-                  
                   })
 
 
@@ -392,15 +347,16 @@ for(i in 1:5){
   names(coefs_mont[[i]])<-"Coeficientes"
   
 }
-
-
-
-
 ```
 
 
 
 9 (3pts). Ahora corre un DDML LASSO para encontrar los efectos a nivel cliente (Tip: interactúa todas las variables con `treat_resid`. Muestra el código. Qué varaibles salen significativas?
+
+```{r}
+
+```
+
 
 
 10 (2 pts). Predice el CATE en la base de entrenamiento y en la base de validación. Como se ve la distribución del impacto de tratamiento en ambas? 
@@ -411,6 +367,35 @@ for(i in 1:5){
 #### Causal Forest
 
 11 (2pts). Ahora vayamos al causal forest. Estima un causal forest en la base de entrenamiento (Estima 750 árboles)
+
+```{r}
+# Vector con el outcome
+Y <- crm %>% filter(training_sample == 1) %>% 
+  select(outcome_spend) %>% 
+  pull()
+
+# Matriz con las variables explicativas
+X <- sparse.model.matrix(~.+0-outcome_spend-mailing_indicator,
+                         data = crm %>%
+                           filter(training_sample == 1)
+                         )
+# Vector con los tratamientos
+W <- crm %>% filter(training_sample == 1) %>% 
+  select(mailing_indicator) %>% 
+  pull()
+
+# Corremos el causal forest
+forest <- causal_forest(X = X, Y = Y, W = W, num.trees = 750)
+
+# Guardar el causal forest para no tener que volverlo a correr
+saveRDS(forest, "./causal_forest.rds")
+```
+
+```{r}
+ate <- average_treatment_effect(forest,
+                                target.sample = "all", method = "AIPW")
+```
+
 
 
 12 (3pts). Cómo se distribuye el impacto de tratamiento? Cuál es el impacto de tratamiento (ATE)? Qué tanto se acerca al impacto de tratamiento "real"? Cómo se compara con el impacto estimado con el ddml simple?

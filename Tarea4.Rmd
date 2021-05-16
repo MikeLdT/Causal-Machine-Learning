@@ -54,10 +54,11 @@ library(kableExtra)
 library(broom)
 ```
 
-```{r, cache=TRUE}
-setwd("/Users/adrian_martinez/Dropbox/Maestría/Maestría Clases/Segundo_Semestre/economia_computacional/Causal-Machine-Learning")
+```{r}
+ruta_trabajo<-"C:/Users/georg/Documents/ITAM/Maestría/2 Semestre/Economía Computacional/Tarea_4/"
+setwd(ruta_trabajo)
 
-load("./Customer-Development-2015-1.RData")
+load("Customer-Development-2015-1.RData")
 ```
 
 Dividimos la base en entrenamiento y validacion. Usamos un seed fijo para replicabilidad.
@@ -90,11 +91,10 @@ Hay múltiples variables con cero, pero ninguna variable tiene `NA`.
 
 2. Muestra la matriz de correlación entre variables. Muestra los pares de variables que tienen más de 95% de correlación. Remueve una de cada par multicolineal. 
 
+Mostramos un heatmap para todas las variables, para ilustrar la matriz de correlación entre variables.
 ```{r}
 #Mapa de calor para matriz de correlaciones
 
-# Aquí tienen que dejar solo las más correlacionas, es algo que dijo isidoro en
-# clase para que se pueda ver bien el mapa...
 
 mcor<-round(cor(crm),2)
 
@@ -108,7 +108,7 @@ heatmap_1<-ggplot(data = melt_mcor, aes(x=Var1, y=Var2, fill=value)) +
 print(heatmap_1)
 ```
 
-
+Los pares de variables que tienen más de 95% de correlación son:
 ```{r}
 #Pares de variables con más de 95%:
 
@@ -122,9 +122,9 @@ kable(corrs, caption = "Variables con una correlación elevada")%>%
   kable_classic(full_width = F, html_font = "Cambria")
 
 ```
-
+Removemos una de cada par multicolineal:
 ```{r}
-#Removemos una de cada par multicolineal
+
 
 crm<-crm %>% 
   select(-customer_type_3, -orders_online_attributed_target, 
@@ -137,13 +137,12 @@ crm<-crm %>%
 3 (2 pts). Corroba que la asignación tratamiento fue aleatoria mediante revisión del balance. Realiza las pruebas balance T y F. Cuántas variables salen desbalanceadas? Que muestra esto sobre la asignación de tratamiento?
 
 ```{r}
+#Corremos las tablas de balance:
 bt <- balance_table(crm, "mailing_indicator")
 
 # Guardar bt para no tener que volverlo a correr
 saveRDS(bt, "./bt.rds")
 
-kable(bt, caption = "Tabla de Balance") %>%
-  kable_classic(full_width = F, html_font = "Cambria")
 
 
 br <- balance_regression(crm, "mailing_indicator")
@@ -151,11 +150,38 @@ br <- balance_regression(crm, "mailing_indicator")
 # Guardar el br para no tener que volverlo a correr
 saveRDS(br, "./br.rds")
 
-kable(br, caption = "Tabla de Balance Conjunta", digits = 4) %>%
+
+
+#Ilustramos las tablas de balance
+setwd(ruta_trabajo)
+br<-readRDS("br.rds")
+bt<-readRDS("bt.rds")
+
+kable(bt, caption = "Tabla de Balance") %>%
   kable_classic(full_width = F, html_font = "Cambria")
 
+kable(br, caption = "Tabla de Balance Conjunta", digits = 4) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+Número de variables desbalanceadas en la tabla de balance T:
+```{r}
+bt2<-bt %>% 
+  filter(p_value1<0.05) %>% 
+  summarise(total=n())
+
+bt2
 ```
 
+Número de variables desbalanceadas en la tabla de balance F (Conjunta):
+```{r}
+br2<-br$regression_tables %>% 
+  filter(p.value<0.05) %>% 
+  summarise(total=n())
+
+br2
+```
+
+Entonces, al ser solamente `r bt2` variables de 149 en el caso de tabla de balance T y `r br2` variables de 149 en el caso de la tabla de balance F que salen deblanceadas, se puede concluir que, en general, existe un balance de la asignación de tratamiento.
 
 4. Realize un ajuste de False Discovery Rate al 10%. Cuántas variables salen desbalanceadas ahora? 
 ```{r}
@@ -193,9 +219,8 @@ p_values_3 <- datos_pvalue%>%
 num1 <- sum(p_values_3$signif_FDR)
 
 
-#¿PREGUNTAR QUÉ ONDA?
-
 ```
+Por lo tanto, el número de variables que salen desbalanceadas deacuerdo al FDR es `r num1`.
 
 
 ### Estimación de impacto de tratamiento (ATE)
@@ -222,11 +247,11 @@ coef_pval <- p_values_3 %>%
 f <- as.formula(
   paste("ydep", 
         paste(coef_fdr, collapse = " + "), 
-        sep = " ~ "))
+        sep = " ~ mailing_indicator+"))
 g <- as.formula(
   paste("ydep", 
         paste(coef_pval, collapse = " + "), 
-        sep = " ~ "))
+        sep = " ~ mailing_indicator+"))
 
 #Variables significativas por FDR
 
@@ -239,6 +264,7 @@ Mod3 <- lm(g, data=crm)
 stargazer(Mod1,Mod2,Mod3, type = "text")
 
 ```
+Tanto en la estimación sin controles como en ambas pruebas de robustez, se puede observar que enviar por correo un mensaje tiene un efecto positivo y significativo. Por lo tanto, sabemos que enviar un correo aumenta el gasto incremental en alrededor de $2.9. 
 
 #### Estimación de efectos heterogéneos
 
@@ -335,8 +361,11 @@ ef_prom_1 <- lm(resid_monto~treat_hat + treat,data = modelo)
 
 ef_prom_2 <- lm(monto_hat~resid_treat,data = modelo)
 
-stargazer(ef_prom_1,ef_prom_2,type="text")
+ef_prom_3 <- lm(resid_monto~resid_treat,data = modelo)
+
+stargazer(ef_prom_1,ef_prom_2,ef_prom_3,type="text")
 ```
+FALTA INTERPRETACIÓN!!!
 
 
 8 (3pts). Cuáles son las variables más importantes para las nuisance functions $T_i = g(X_i)+v_i$ y $y_i=m(X_i)+\epsilon_i$? (Tip: toma las variables que tengan $\beta \neq 0$ en cada $k$ y haz un `inner_join`. De ahí muestra el promedio de los coeficientes) Interpreta la función $g(X_i)$, porque sale así?
@@ -353,9 +382,31 @@ for(i in 1:5){
   names(coefs_treat[[i]]) <- "Coeficientes"
   names(coefs_mont[[i]]) <- "Coeficientes"
   
+  setDT(coefs_treat[[i]], keep.rownames = "Nombres")[]
+  setDT(coefs_treat[[i]], keep.rownames = "Nombres")[]
+  
+}
+
+union<-inner_join(coefs_treat[[1]],coefs_treat[[2]], by="Nombres")
+
+
+for(i in 3:5){
+  union<-inner_join(coefs_treat[[i]],union, by="Nombres")
 }
 ```
 
+Las variables que prevalecieron en los 5 modelos son:
+```{r}
+union$Nombres
+```
+
+La media de los valores que prevalecieron fue:
+```{r}
+mean(union$Coeficientes, union$Coeficientes.x.x, union$Coeficientes.y, union$Coeficientes.x, union$Coeficientes.y.y)
+
+
+```
+Después de correr los 5 modelos e identificar las variables relevantes en cada caso, únicamente el intercepto se repitió en los 5 casos (fue distinto a 0). Por lo tanto la función sería $g(X_i)=\beta_0$. (Quizá para no perder las variables relevantes de los modelos estimados, podríamos emplear un left_join en lugar del inner_join).
 
 
 9 (3pts). Ahora corre un DDML LASSO para encontrar los efectos a nivel cliente (Tip: interactúa todas las variables con `treat_resid`. Muestra el código. Qué varaibles salen significativas?

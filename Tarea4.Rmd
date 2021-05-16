@@ -64,7 +64,7 @@ Dividimos la base en entrenamiento y validacion. Usamos un seed fijo para replic
 
 ```{r}
 set.seed(1990)
-crm<-
+crm <-
   crm %>% 
   mutate(training_sample = rbinom(n = nrow(crm), 1, 0.7))
   
@@ -137,13 +137,19 @@ crm<-crm %>%
 3 (2 pts). Corroba que la asignación tratamiento fue aleatoria mediante revisión del balance. Realiza las pruebas balance T y F. Cuántas variables salen desbalanceadas? Que muestra esto sobre la asignación de tratamiento?
 
 ```{r}
-bt<-balance_table(crm, "mailing_indicator")
+bt <- balance_table(crm, "mailing_indicator")
+
+# Guardar bt para no tener que volverlo a correr
+saveRDS(bt, "./bt.rds")
 
 kable(bt, caption = "Tabla de Balance") %>%
   kable_classic(full_width = F, html_font = "Cambria")
 
 
-br<- balance_regression(crm, "mailing_indicator")
+br <- balance_regression(crm, "mailing_indicator")
+
+# Guardar el br para no tener que volverlo a correr
+saveRDS(br, "./br.rds")
 
 kable(br, caption = "Tabla de Balance Conjunta", digits = 4) %>%
   kable_classic(full_width = F, html_font = "Cambria")
@@ -153,37 +159,38 @@ kable(br, caption = "Tabla de Balance Conjunta", digits = 4) %>%
 
 4. Realize un ajuste de False Discovery Rate al 10%. Cuántas variables salen desbalanceadas ahora? 
 ```{r}
-datos_pvalue<-br$regression_tables %>% 
-as.data.frame()
+datos_pvalue <- br$regression_tables %>% 
+  as.data.frame(.)
 #Crear variable ranking:
-datos_pvalue<-datos_pvalue%>%
-arrange(p.value) %>%
-mutate(ranking = row_number(p.value))
+datos_pvalue <- datos_pvalue %>%
+  arrange(p.value) %>%
+  mutate(ranking = row_number(p.value))
 
 #Gráfica del FDR:
-q<-0.10
-n<-max(datos_pvalue$ranking)
+q <- 0.10
+n <- max(datos_pvalue$ranking)
 
-FDR<-ggplot(datos_pvalue,aes(x=ranking,y=p.value))+
-geom_point(color="black")+
-geom_abline( aes(intercept = 0, slope = q/n,color="Ajuste FDR"), size=.6)+
-geom_abline(aes(intercept = 0.05, slope = 0, color="P-value=0.05"), size=.6)+
-ggtitle("Gráfica FDR")+
-theme_bw()+
-labs(color="Legend",title="")
+FDR <- ggplot(datos_pvalue,aes(x=ranking,y=p.value)) +
+  geom_point(color="black") +
+  geom_abline( aes(intercept = 0, slope = q/n,color="Ajuste FDR"), size=.6)+
+  geom_abline(aes(intercept = 0.05, slope = 0, color="P-value=0.05"), size=.6)+
+  ggtitle("Gráfica FDR") +
+  theme_bw() +
+  labs(color="Legend",title="")
+
 print(FDR)
 
 
 #Encontrar número de variables singificativas:
-p_values_3<-datos_pvalue%>%
-arrange(p.value) %>%
-mutate(ranking = row_number(p.value),
+p_values_3 <- datos_pvalue%>%
+ arrange(p.value) %>%
+ mutate(ranking = row_number(p.value),
   alpha = q*ranking/n,
   signif_FDR = ifelse(alpha>=p.value,1,0),
   signif_0.05 = ifelse(0.05>=p.value,1,0))
 
 #Número de variables significativas con FDR es:
-num1<-sum(p_values_3$signif_FDR)
+num1 <- sum(p_values_3$signif_FDR)
 
 
 #¿PREGUNTAR QUÉ ONDA?
@@ -197,18 +204,18 @@ num1<-sum(p_values_3$signif_FDR)
 
 
 ```{r}
-ydep<- crm$outcome_spend
+ydep <- crm$outcome_spend
 
 
-Mod1<-lm(ydep~mailing_indicator)
+Mod1 <- lm(outcome_spend ~ mailing_indicator, data = crm)
+ 
 
-
-coef_fdr<-p_values_3 %>% 
+coef_fdr <- p_values_3 %>% 
   filter(!term %in% c("(Intercept)","outcome_spend"), signif_FDR==1 ) %>% 
   pull(term)
 
 
-coef_pval<-p_values_3 %>% 
+coef_pval <- p_values_3 %>% 
   filter(!term %in% c("(Intercept)","outcome_spend"), signif_0.05==1 ) %>% 
   pull(term)
 
@@ -223,10 +230,10 @@ g <- as.formula(
 
 #Variables significativas por FDR
 
-Mod2<-lm(f, data=crm)
+Mod2 <- lm(f, data=crm)
 
 #Variables significativas al 5%:
-Mod3<-lm(g, data=crm)
+Mod3 <- lm(g, data=crm)
 
 
 stargazer(Mod1,Mod2,Mod3, type = "text")
@@ -253,7 +260,7 @@ Separa la base de entrenamiento de la de validación
 
 ```{r}
 #Dividimos la base en K=5 partes de forma aleatoria.
-base_training<-crm %>% 
+base_training <-crm %>% 
   filter(training_sample==1)
 ```
 
@@ -273,8 +280,8 @@ k<-treatment_assign(data = base_training, share_control = 0.2, n_t = 4,
                     strata_varlist = "mailing_indicator",missfits = "global",
                     seed = 1900, key ="mailing_indicator")$data
 
-k<-k%>% 
-  mutate(k = treat+1)%>% 
+k <- k%>% 
+  mutate(k = treat+1) %>% 
   ungroup()
 
 base_training<-bind_cols(base_training, k %>% select(k))
@@ -323,10 +330,10 @@ modelo<-map_dfr(1:5,
 7 (2pts). Cuál es el impacto de tratamiento promedio? Estimalo de dos maneras: 1) `spend_resid~treat_hat + treat` y 2) `spend~treat_resid`. Sale lo mismo? Justifica tu respuesta
 
 ```{r}
-ef_prom_1<-lm(resid_monto~treat_hat + treat,data = modelo)
+ef_prom_1 <- lm(resid_monto~treat_hat + treat,data = modelo)
 
 
-ef_prom_2<-lm(monto_hat~resid_treat,data = modelo)
+ef_prom_2 <- lm(monto_hat~resid_treat,data = modelo)
 
 stargazer(ef_prom_1,ef_prom_2,type="text")
 ```
@@ -343,8 +350,8 @@ coefs_mont<-lapply(lasso_monto, function(x) as.data.frame(as.matrix(coef(x))))
 coefs_mont<-lapply(coefs_mont, function(x) x %>% filter(.!=0))
 
 for(i in 1:5){
-  names(coefs_treat[[i]])<-"Coeficientes"
-  names(coefs_mont[[i]])<-"Coeficientes"
+  names(coefs_treat[[i]]) <- "Coeficientes"
+  names(coefs_mont[[i]]) <- "Coeficientes"
   
 }
 ```
@@ -353,14 +360,44 @@ for(i in 1:5){
 
 9 (3pts). Ahora corre un DDML LASSO para encontrar los efectos a nivel cliente (Tip: interactúa todas las variables con `treat_resid`. Muestra el código. Qué varaibles salen significativas?
 
-```{r}
+```{r pregunta-9, echo = TRUE}
+# Base de datos auxiliar
+data_9 <- modelo %>% 
+  bind_cols(base_training %>% select(-outcome_spend))
+
+# Generamos los vectores/matrices para el lasso
+resid_monto <- data_9$resid_monto
+x <- sparse.model.matrix(~ mailing_indicator*.+ 0 - 
+                           resid_treat:mailing_indicator - mailing_indicator, 
+                         data_9 %>% 
+                    select(-resid_monto, -k, -customer_id, -training_sample, 
+                           -treat_hat, -monto_hat))
+
+# Lasso
+modelo_9 <- gamlr(y = resid_monto, x = x, family = "gaussian") 
 
 ```
 
+```{r, results = "asis"}
+# Variables que salieron significativas
+as.data.frame(as.matrix(coef(modelo_9))) %>% 
+  filter(seg100 != 0) %>% 
+  arrange(-abs(seg100)) %>% 
+  kable(., col.names = c("Coeficiente"), caption = "Variables Significativas")
+```
 
 
 10 (2 pts). Predice el CATE en la base de entrenamiento y en la base de validación. Como se ve la distribución del impacto de tratamiento en ambas? 
 
+```{r}
+cate <- predict(modelo_9, newdata = x)
+
+cate <- as.data.frame(as.matrix(cate)) 
+cate %>% 
+  ggplot(data = ., aes(x = seg100)) +
+  geom_histogram(color = "black", fill = "lightblue", aes(y = ..density..)) +
+  xlim(-2, 2)
+```
 
 
 
@@ -392,6 +429,7 @@ saveRDS(forest, "./causal_forest.rds")
 ```
 
 ```{r}
+forest <- readRDS("./causal_forest.rds")
 ate <- average_treatment_effect(forest,
                                 target.sample = "all", method = "AIPW")
 ```

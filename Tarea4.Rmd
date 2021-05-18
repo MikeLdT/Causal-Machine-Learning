@@ -55,7 +55,7 @@ library(broom)
 ```
 
 ```{r}
-ruta_trabajo<-"C:/Users/georg/Documents/ITAM/Maestría/2 Semestre/Economía Computacional/Tarea_4/"
+ruta_trabajo <- "/Users/adrian_martinez/Dropbox/Maestría/Maestría Clases/Segundo_Semestre/economia_computacional/Causal-Machine-Learning"
 setwd(ruta_trabajo)
 
 load("Customer-Development-2015-1.RData")
@@ -77,7 +77,6 @@ crm <-
 1. Haz una primera revisión de la base. Cuantas variables tienen `NA`
 
 ```{r}
-
 x<-sapply(crm, function (x) sum(is.na(x)))
 
 as.data.frame(x) %>% 
@@ -122,6 +121,7 @@ kable(corrs, caption = "Variables con una correlación elevada")%>%
   kable_classic(full_width = F, html_font = "Cambria")
 
 ```
+
 Removemos una de cada par multicolineal:
 ```{r}
 
@@ -153,7 +153,6 @@ saveRDS(br, "./br.rds")
 
 
 #Ilustramos las tablas de balance
-setwd(ruta_trabajo)
 br<-readRDS("br.rds")
 bt<-readRDS("bt.rds")
 
@@ -418,11 +417,10 @@ data_9 <- modelo %>%
 
 # Generamos los vectores/matrices para el lasso
 resid_monto <- data_9$resid_monto
-x <- sparse.model.matrix(~ mailing_indicator*.+ 0 - 
-                           resid_treat:mailing_indicator - mailing_indicator, 
+x <- sparse.model.matrix(~ resid_treat*.+ 0, 
                          data_9 %>% 
                     select(-resid_monto, -k, -customer_id, -training_sample, 
-                           -treat_hat, -monto_hat))
+                           -treat_hat, -monto_hat, -mailing_indicator))
 
 # Lasso
 modelo_9 <- gamlr(y = resid_monto, x = x, family = "gaussian") 
@@ -441,13 +439,92 @@ as.data.frame(as.matrix(coef(modelo_9))) %>%
 10 (2 pts). Predice el CATE en la base de entrenamiento y en la base de validación. Como se ve la distribución del impacto de tratamiento en ambas? 
 
 ```{r}
-cate <- predict(modelo_9, newdata = x)
+# Calculamos los residuales en la base de validación
+base_validacion <- crm %>% 
+  filter(training_sample == 0) %>% 
+   select(-outcome_spend, -mailing_indicator)
 
+outcome_spend_validacion <- crm %>% 
+  filter(training_sample == 0) %>% 
+  pull(outcome_spend)
+
+treat_validacion <- crm %>% 
+  filter(training_sample == 0) %>% 
+  pull(mailing_indicator)
+
+# Residuales de monto/y
+lasso_monto_validacion <- map_dfc(1:5, function(a){
+  # Predecimos "y"
+  monto_hat <- predict(lasso_monto[[a]], newdata = base_validacion)
+  as.matrix(monto_hat)
+})
+
+# Residuales de treat
+lasso_treat_validacion <- map_dfc(1:5, function(a){
+  treat_hat <- predict(lasso_treat[[a]], newdata = base_validacion)
+  as.matrix(treat_hat)
+})
+
+lasso_monto_validacion <- lasso_monto_validacion %>% 
+  mutate(media = rowMeans(across()))
+
+lasso_treat_validacion <- lasso_treat_validacion %>% 
+  mutate(media = rowMeans(across()))
+
+base_validacion <- base_validacion %>% 
+  bind_cols(lasso_monto_validacion %>% 
+              select(media) %>% 
+              rename(media_monto = media)) %>% 
+  bind_cols(lasso_treat_validacion %>% 
+              select(media) %>% 
+              rename(media_treat = media))
+
+base_validacion$resid_treat <- treat_validacion - base_validacion$media_treat
+base_validacion$resid_monto <- outcome_spend_validacion - base_validacion$media_monto
+
+x_val <- base_validacion %>% 
+  select(-resid_monto, -customer_id, -training_sample, -media_monto, 
+         -media_treat)
+
+x_val <- sparse.model.matrix(~ resid_treat*.+ 0, x_val)
+resid_monto_val <- base_validacion$resid_monto
+modelo_9_val <- gamlr(y = resid_monto_val, x = x_val, family = "gaussian")
+```
+
+
+```{r}
+# Esta es la matriz de la t de tratamiento en lugar de los residuales
+x_prueba <- sparse.model.matrix(~ mailing_indicator*.+ 0, 
+                         data_9 %>% 
+                    select(-resid_monto, -k, -customer_id, -training_sample, 
+                           -treat_hat, -monto_hat, -resid_treat))
+
+
+# CATE entrenamiento
+cate <- x_prueba[, grepl("mailing", colnames(x_prueba))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
+
+# CATE validacion
+cate_val <- x_val[, grepl("resid", colnames(x_val))] %*% unlist(coef(modelo_9_val))[grepl("resid", rownames(coef(modelo_9_val))),]
+
+cate_val <- as.data.frame(as.matrix(cate_val))
+#cate <- predict(modelo_9, newdata = x)
+lab1 <- paste0("Media/Val=", round(mean(cate_val$V1), 2))
 cate <- as.data.frame(as.matrix(cate)) 
 cate %>% 
-  ggplot(data = ., aes(x = seg100)) +
-  geom_histogram(color = "black", fill = "lightblue", aes(y = ..density..)) +
+  ggplot(data = ., aes(x = V1)) +
+  geom_histogram(color = "black", 
+                 aes(y = ..density.., fill = "Training"),  alpha = 0.5) +
   xlim(-2, 2)
+  geom_histogram(color = "black", data = cate_val, 
+                 aes(y = ..density.., fill = "Validation"), alpha = 0.5, binwidth = 10) +
+  geom_vline(aes(xintercept = mean(cate_val$V1), color = "Media/Val"), linetype = "dashed") +
+  geom_vline(aes(xintercept= mean(cate$V1), colour = "Media/Training"), linetype = "dashed") +
+  labs(x = "CATE", y = "Densidad", fill = "Base") +
+  scale_color_manual(name = "Estadísticos", 
+                     values = c("Media/Training" = "red",  "Media/Val" = "blue")) +
+  xlim(-2, 2) +
+  theme_minimal()
+
 ```
 
 

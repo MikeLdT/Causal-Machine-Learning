@@ -494,29 +494,31 @@ modelo_9_val <- gamlr(y = resid_monto_val, x = x_val, family = "gaussian")
 
 ```{r}
 # Esta es la matriz de la t de tratamiento en lugar de los residuales
-x_prueba <- sparse.model.matrix(~ mailing_indicator*.+ 0, 
-                         data_9 %>% 
-                    select(-resid_monto, -k, -customer_id, -training_sample, 
-                           -treat_hat, -monto_hat, -resid_treat))
-
+# x_prueba <- sparse.model.matrix(~ mailing_indicator*.+ 0, 
+#                          data_9 %>% 
+#                     select(-resid_monto, -k, -customer_id, -training_sample, 
+#                            -treat_hat, -monto_hat, -resid_treat))
+# x_prueba_val <- sparse.model.matrix(~ mailing_indicator*.+ 0, 
+#                          base_validacion %>% 
+#                       select(-resid_monto, -customer_id, -training_sample, -media_monto, 
+#          -media_treat) %>% 
+#            bind_cols(mailing_indicator = treat_validacion))
 
 # CATE entrenamiento
-cate <- x_prueba[, grepl("mailing", colnames(x_prueba))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
+cate <- x[, grepl("mailing", colnames(x_prueba))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
 
 # CATE validacion
-cate_val <- x_val[, grepl("resid", colnames(x_val))] %*% unlist(coef(modelo_9_val))[grepl("resid", rownames(coef(modelo_9_val))),]
+cate_val <- x_val[, grepl("resid", colnames(x_val))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9_val))),]
 
 cate_val <- as.data.frame(as.matrix(cate_val))
-#cate <- predict(modelo_9, newdata = x)
-lab1 <- paste0("Media/Val=", round(mean(cate_val$V1), 2))
+
 cate <- as.data.frame(as.matrix(cate)) 
 cate %>% 
   ggplot(data = ., aes(x = V1)) +
   geom_histogram(color = "black", 
                  aes(y = ..density.., fill = "Training"),  alpha = 0.5) +
-  xlim(-2, 2)
   geom_histogram(color = "black", data = cate_val, 
-                 aes(y = ..density.., fill = "Validation"), alpha = 0.5, binwidth = 10) +
+                 aes(y = ..density.., fill = "Validation"), alpha = 0.5) +
   geom_vline(aes(xintercept = mean(cate_val$V1), color = "Media/Val"), linetype = "dashed") +
   geom_vline(aes(xintercept= mean(cate$V1), colour = "Media/Training"), linetype = "dashed") +
   labs(x = "CATE", y = "Densidad", fill = "Base") +

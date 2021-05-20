@@ -139,12 +139,12 @@ crm<-crm %>%
 
 ```{r}
 #Corremos las tablas de balance:
-bt <- balance_table(crm, "mailing_indicator")
+#bt <- balance_table(crm, "mailing_indicator")
 
 # Guardar bt para no tener que volverlo a correr
 # saveRDS(bt, "./bt.rds")
 
-br <- balance_regression(crm, "mailing_indicator")
+#br <- balance_regression(crm, "mailing_indicator")
 
 # Guardar el br para no tener que volverlo a correr
 # saveRDS(br, "./br.rds")
@@ -485,33 +485,24 @@ x_val <- base_validacion %>%
 
 x_val <- sparse.model.matrix(~ resid_treat*.+ 0, x_val)
 resid_monto_val <- base_validacion$resid_monto
-#modelo_9_val <- gamlr(y = resid_monto_val, x = x_val, family = "gaussian")
 
-
+y_val_1 <- predict(modelo_9, newdata = x)
 ```
 
 
 ```{r}
-# Esta es la matriz de la t de tratamiento en lugar de los residuales
-# x_prueba <- sparse.model.matrix(~ mailing_indicator*.+ 0, 
-#                          data_9 %>% 
-#                     select(-resid_monto, -k, -customer_id, -training_sample, 
-#                            -treat_hat, -monto_hat, -resid_treat))
-# x_prueba_val <- sparse.model.matrix(~ mailing_indicator*.+ 0, 
-#                          base_validacion %>% 
-#                       select(-resid_monto, -customer_id, -training_sample, -media_monto, 
-#          -media_treat) %>% 
-#            bind_cols(mailing_indicator = treat_validacion))
-
 # CATE entrenamiento
-cate <- x[, grepl("resid", colnames(x))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
+cate <- x[base_training$mailing_indicator == 1, grepl("resid", colnames(x))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
 
 # CATE validacion
-cate_val <- x_val[, grepl("resid", colnames(x_val))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
+cate_val <- x_val[treat_validacion == 1, grepl("resid", colnames(x_val))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
 
 # Transformamos de matrices a data frames para poder hacer los gráficos
 cate_val <- as.data.frame(as.matrix(cate_val))
 cate <- as.data.frame(as.matrix(cate)) 
+
+label_cate <- paste0("ATE = ", round(mean(cate$V1),2))
+label_cate_val <- paste0("ATE = ", round(mean(cate_val$V1),2))
 
 cate %>% 
   ggplot(data = ., aes(x = V1)) +
@@ -519,12 +510,11 @@ cate %>%
                  aes(y = ..density.., fill = "Training"),  alpha = 0.5) +
   geom_histogram(color = "black", data = cate_val, 
                  aes(y = ..density.., fill = "Validation"), alpha = 0.5) +
-  geom_vline(aes(xintercept = mean(cate_val$V1), color = "Media/Val"), linetype = "dashed") +
-  geom_vline(aes(xintercept= mean(cate$V1), colour = "Media/Training"), linetype = "dashed") +
+  geom_vline(aes(xintercept = mean(cate_val$V1), color = label_cate), linetype = "dashed") +
+  geom_vline(aes(xintercept= mean(cate$V1), colour = label_cate_val), linetype = "dashed") +
   labs(x = "CATE", y = "Densidad", fill = "Base") +
   scale_color_manual(name = "Estadísticos", 
-                     values = c("Media/Training" = "red",  "Media/Val" = "blue")) +
-  xlim(-2, 2) +
+                     values = c("red",  "blue")) +
   theme_minimal()
 
 ```
@@ -550,7 +540,7 @@ W <- crm %>% filter(training_sample == 1) %>%
   pull()
 
 # Corremos el causal forest
-forest <- causal_forest(X = X, Y = Y, W = W, num.trees = 750)
+#forest <- causal_forest(X = X, Y = Y, W = W, num.trees = 750)
 
 # Guardar el causal forest para no tener que volverlo a correr
 # saveRDS(forest, "./causal_forest.rds")
@@ -567,12 +557,31 @@ ate <- average_treatment_effect(forest,
 12 (3pts). Cómo se distribuye el impacto de tratamiento? Cuál es el impacto de tratamiento (ATE)? Qué tanto se acerca al impacto de tratamiento "real"? Cómo se compara con el impacto estimado con el ddml simple?
 
 ```{r}
-predict(forest, estimate.variance = TRUE)
+# Estimamos el CATE para el causal forest usando predict
+cate_causal_forest <- predict(forest, estimate.variance = TRUE)
+
+# Label para el gráfico...
+label_causal_forest_ate <- paste0("ATE = ", 
+                                  round(mean(cate_causal_forest$predictions), 2))
+
+# Gráfico de la distribución del CATE y el ATE
+cate_causal_forest %>% 
+  ggplot(data = ., aes(x = predictions)) +
+  geom_histogram(aes(y = ..density..), color = "black") +
+  geom_vline(aes(xintercept = mean(cate_causal_forest$predictions), 
+                 color = label_causal_forest_ate), linetype ="dashed") +
+  scale_color_manual(name = "Estadisticos", values = c("red")) +
+  theme_minimal()
 
 ```
 
 
+
 13. Haz un scatter plot de las predicciones de ambos modelos? Hay alguna relación?
+
+```{r}
+
+```
 
 
 14 (4pts). Evalúa el poder predictivo de cada modelo (OOS). Esto se hace por modelo: Divide la muestra en 10 partes con base en el score de ddml. Para cada parte, estima el impacto de tratamiento vía una regresión y saca el promedio del score. Valida si para los grupos que dice el score el impacto será más grande, el coeficiente de la regresión es. Cómo se ven los modelos? Cuál parece ser mejor?

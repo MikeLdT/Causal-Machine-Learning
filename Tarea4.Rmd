@@ -115,7 +115,8 @@ res.cor <- correlate(crm)
 
 corrs<-res.cor %>%  
     gather(-term, key = "colname", value = "cor") %>% 
-    filter(abs(cor) > 0.95)
+    filter(abs(cor) > 0.95) %>%
+    arrange(-cor)
 
 kable(corrs, caption = "Variables con una correlación elevada")%>%
   kable_classic(full_width = F, html_font = "Cambria")
@@ -141,18 +142,15 @@ crm<-crm %>%
 bt <- balance_table(crm, "mailing_indicator")
 
 # Guardar bt para no tener que volverlo a correr
-saveRDS(bt, "./bt.rds")
-
-
+# saveRDS(bt, "./bt.rds")
 
 br <- balance_regression(crm, "mailing_indicator")
 
 # Guardar el br para no tener que volverlo a correr
-saveRDS(br, "./br.rds")
+# saveRDS(br, "./br.rds")
 
 
-
-#Ilustramos las tablas de balance
+#Imprimimos las tablas de balance
 br<-readRDS("br.rds")
 bt<-readRDS("bt.rds")
 
@@ -402,7 +400,6 @@ union$Nombres
 La media de los valores que prevalecieron fue:
 ```{r}
 mean(union$Coeficientes, union$Coeficientes.x.x, union$Coeficientes.y, union$Coeficientes.x, union$Coeficientes.y.y)
-
 
 ```
 Después de correr los 5 modelos e identificar las variables relevantes en cada caso, únicamente el intercepto se repitió en los 5 casos (fue distinto a 0). Por lo tanto la función sería $g(X_i)=\beta_0$. (Quizá para no perder las variables relevantes de los modelos estimados, podríamos emplear un left_join en lugar del inner_join).

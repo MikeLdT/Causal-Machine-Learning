@@ -115,7 +115,8 @@ res.cor <- correlate(crm)
 
 corrs<-res.cor %>%  
     gather(-term, key = "colname", value = "cor") %>% 
-    filter(abs(cor) > 0.95)
+    filter(abs(cor) > 0.95) %>%
+    arrange(-abs(cor))
 
 kable(corrs, caption = "Variables con una correlación elevada")%>%
   kable_classic(full_width = F, html_font = "Cambria")
@@ -141,18 +142,15 @@ crm<-crm %>%
 bt <- balance_table(crm, "mailing_indicator")
 
 # Guardar bt para no tener que volverlo a correr
-saveRDS(bt, "./bt.rds")
-
-
+# saveRDS(bt, "./bt.rds")
 
 br <- balance_regression(crm, "mailing_indicator")
 
 # Guardar el br para no tener que volverlo a correr
-saveRDS(br, "./br.rds")
+# saveRDS(br, "./br.rds")
 
 
-
-#Ilustramos las tablas de balance
+#Imprimimos las tablas de balance
 br<-readRDS("br.rds")
 bt<-readRDS("bt.rds")
 
@@ -403,7 +401,6 @@ La media de los valores que prevalecieron fue:
 ```{r}
 mean(union$Coeficientes, union$Coeficientes.x.x, union$Coeficientes.y, union$Coeficientes.x, union$Coeficientes.y.y)
 
-
 ```
 Después de correr los 5 modelos e identificar las variables relevantes en cada caso, únicamente el intercepto se repitió en los 5 casos (fue distinto a 0). Por lo tanto la función sería $g(X_i)=\beta_0$. (Quizá para no perder las variables relevantes de los modelos estimados, podríamos emplear un left_join en lugar del inner_join).
 
@@ -532,8 +529,6 @@ cate %>%
 
 ```
 
-
-
 #### Causal Forest
 
 11 (2pts). Ahora vayamos al causal forest. Estima un causal forest en la base de entrenamiento (Estima 750 árboles)
@@ -558,7 +553,7 @@ W <- crm %>% filter(training_sample == 1) %>%
 forest <- causal_forest(X = X, Y = Y, W = W, num.trees = 750)
 
 # Guardar el causal forest para no tener que volverlo a correr
-saveRDS(forest, "./causal_forest.rds")
+# saveRDS(forest, "./causal_forest.rds")
 ```
 
 ```{r}
@@ -570,6 +565,12 @@ ate <- average_treatment_effect(forest,
 
 
 12 (3pts). Cómo se distribuye el impacto de tratamiento? Cuál es el impacto de tratamiento (ATE)? Qué tanto se acerca al impacto de tratamiento "real"? Cómo se compara con el impacto estimado con el ddml simple?
+
+```{r}
+predict(forest, estimate.variance = TRUE)
+
+```
+
 
 13. Haz un scatter plot de las predicciones de ambos modelos? Hay alguna relación?
 

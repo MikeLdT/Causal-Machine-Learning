@@ -116,7 +116,7 @@ res.cor <- correlate(crm)
 corrs<-res.cor %>%  
     gather(-term, key = "colname", value = "cor") %>% 
     filter(abs(cor) > 0.95) %>%
-    arrange(-cor)
+    arrange(-abs(cor))
 
 kable(corrs, caption = "Variables con una correlación elevada")%>%
   kable_classic(full_width = F, html_font = "Cambria")
@@ -525,7 +525,6 @@ cate %>%
   theme_minimal()
 
 ```
-
 
 
 #### Causal Forest

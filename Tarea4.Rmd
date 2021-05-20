@@ -488,7 +488,9 @@ x_val <- base_validacion %>%
 
 x_val <- sparse.model.matrix(~ resid_treat*.+ 0, x_val)
 resid_monto_val <- base_validacion$resid_monto
-modelo_9_val <- gamlr(y = resid_monto_val, x = x_val, family = "gaussian")
+#modelo_9_val <- gamlr(y = resid_monto_val, x = x_val, family = "gaussian")
+
+
 ```
 
 
@@ -505,14 +507,15 @@ modelo_9_val <- gamlr(y = resid_monto_val, x = x_val, family = "gaussian")
 #            bind_cols(mailing_indicator = treat_validacion))
 
 # CATE entrenamiento
-cate <- x[, grepl("mailing", colnames(x_prueba))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
+cate <- x[, grepl("resid", colnames(x))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
 
 # CATE validacion
-cate_val <- x_val[, grepl("resid", colnames(x_val))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9_val))),]
+cate_val <- x_val[, grepl("resid", colnames(x_val))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
 
+# Transformamos de matrices a data frames para poder hacer los gráficos
 cate_val <- as.data.frame(as.matrix(cate_val))
-
 cate <- as.data.frame(as.matrix(cate)) 
+
 cate %>% 
   ggplot(data = ., aes(x = V1)) +
   geom_histogram(color = "black", 

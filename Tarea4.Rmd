@@ -526,7 +526,6 @@ cate %>%
 
 ```
 
-
 #### Causal Forest
 
 11 (2pts). Ahora vayamos al causal forest. Estima un causal forest en la base de entrenamiento (Estima 750 árboles)
@@ -551,7 +550,7 @@ W <- crm %>% filter(training_sample == 1) %>%
 forest <- causal_forest(X = X, Y = Y, W = W, num.trees = 750)
 
 # Guardar el causal forest para no tener que volverlo a correr
-saveRDS(forest, "./causal_forest.rds")
+# saveRDS(forest, "./causal_forest.rds")
 ```
 
 ```{r}
@@ -563,6 +562,12 @@ ate <- average_treatment_effect(forest,
 
 
 12 (3pts). Cómo se distribuye el impacto de tratamiento? Cuál es el impacto de tratamiento (ATE)? Qué tanto se acerca al impacto de tratamiento "real"? Cómo se compara con el impacto estimado con el ddml simple?
+
+```{r}
+predict(forest, estimate.variance = TRUE)
+
+```
+
 
 13. Haz un scatter plot de las predicciones de ambos modelos? Hay alguna relación?
 

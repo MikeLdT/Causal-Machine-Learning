@@ -694,7 +694,6 @@ plot_utilidad <- utilidad %>%
   geom_vline(xintercept = 0) +
   labs(x = "Personas que entran a la campaña") +
   annotate("point", x = 50328, y = 60852.9, color = "red") +
-  geom_text(aes(x = 50328, label = "DSd")) +
   theme_minimal()
     
 plotly::ggplotly(plot_utilidad)

@@ -10,6 +10,7 @@ urlcolor: blue
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, comment = NA, message = FALSE,
                       fig.width = 6, fig.height = 4.5, fig.align = "right", cache = T)
+options(digits = 6, scipen=999)
 ```
 
 \setlength{\parskip}{6pt}
@@ -353,7 +354,7 @@ modelo<-map_dfr(1:5,
 7 (2pts). Cuál es el impacto de tratamiento promedio? Estimalo de dos maneras: 1) `spend_resid~treat_hat + treat` y 2) `spend~treat_resid`. Sale lo mismo? Justifica tu respuesta
 
 ```{r}
-ef_prom_1 <- lm(resid_monto~treat_hat + treat,data = modelo)
+ef_prom_1 <- lm(resid_monto ~ treat_hat + treat,data = modelo)
 
 
 ef_prom_2 <- lm(monto_hat~resid_treat,data = modelo)
@@ -557,12 +558,38 @@ ate <- average_treatment_effect(forest,
 12 (3pts). Cómo se distribuye el impacto de tratamiento? Cuál es el impacto de tratamiento (ATE)? Qué tanto se acerca al impacto de tratamiento "real"? Cómo se compara con el impacto estimado con el ddml simple?
 
 ```{r}
-# Estimamos el CATE para el causal forest usando predict
-cate_causal_forest <- predict(forest, estimate.variance = TRUE)
+# Estimación del ATE "real"
+ate_real <- base_training %>% 
+  lm(data =., outcome_spend ~ mailing_indicator)
+
+# Predecir el tau del causal forest
+cate_causal_forest <- predict(forest)
+
+# Generar deciles
+cate_causal_forest <- cate_causal_forest %>% 
+  mutate(decil = ntile(predictions, 10))
+
+# Calcula el impacto promedio dentro de cada decil
+tau_decil <- cate_causal_forest %>% group_by(decil) %>% 
+  summarise(mean_decil = mean(predictions)) %>% 
+  select(decil, mean_decil)
+
+base_training$decil <- cate_causal_forest$decil
+
+# Genera un data frame con el coeficiente estimado (ATE) para cada decil
+coefs <- map_dfr(1:10, function(x){
+  base_training %>% 
+    filter(decil == {{x}}) %>% 
+    lm(data = ., outcome_spend ~ mailing_indicator) %>% 
+    coef()
+}
+)
 
 # Label para el gráfico...
 label_causal_forest_ate <- paste0("ATE = ", 
                                   round(mean(cate_causal_forest$predictions), 2))
+label_real_ate <- paste0("ATE real = ", 
+                                  round(ate_real$coefficients["mailing_indicator"], 2))
 
 # Gráfico de la distribución del CATE y el ATE
 cate_causal_forest %>% 
@@ -570,12 +597,14 @@ cate_causal_forest %>%
   geom_histogram(aes(y = ..density..), color = "black") +
   geom_vline(aes(xintercept = mean(cate_causal_forest$predictions), 
                  color = label_causal_forest_ate), linetype ="dashed") +
-  scale_color_manual(name = "Estadisticos", values = c("red")) +
+  geom_vline(aes(xintercept = ate_real$coefficients["mailing_indicator"], 
+                 color = label_real_ate)) +
+  scale_color_manual(name = "Estadisticos", values = c("red", "blue")) +
   theme_minimal()
 
 ```
 
-
+En la gráfica anterior se puede observar la distribución del ATE gracias a los efectos heterogéneos. También se gráfican lineas verticales indicando el ATE estimado por causal forest y el ATE "real" que se obtiene de una regresión lineal entre la variable de interés y el tratamiento. Comparado con el ddml simple, la estimación del ATE es practicamente la misma, pues en el ddml simple se obtuve un ATE igual a 2.75. 
 
 13. Haz un scatter plot de las predicciones de ambos modelos? Hay alguna relación?
 
@@ -605,8 +634,69 @@ Con esto, indica:
 
 - Cuánta utilidad haremos con esta estrategia? Cómo se compara con la utilidad de la campaña sin focalizar?
 
+Campaña con base en el causal forest:
 
+```{r}
+# Sin focalizar
+costo <- 250000 * 0.99
+beneficio <- 2.74 * 250000 * .325
+(utilidad_sin_focal <- beneficio - costo)
+
+# Para el decil más alto
+utilidad_decil <- map_dbl(1:10, function(x){
+  n <- base_training %>% 
+    count(decil) %>% 
+    filter(decil == {{x}}) %>% 
+    pull()
+  
+  costo <- n * 0.99
+  
+  tau <- tau_decil %>% 
+    filter(decil == {{x}}) %>% 
+    pull()
+  
+  beneficio <- tau * n * .325
+  utilidad <- beneficio - costo
+}
+)
+
+
+n_campana <- base_training %>% 
+  count(decil) %>% 
+  filter(decil >= 8) %>% 
+  summarise(sum(.))
+
+as.data.frame(utilidad_decil) %>% 
+  mutate(decil = 1:10) %>% 
+  kable(., col.names = c("Utilidad", "Decil"))
+```
+
+En la tabla anterior se puede observar que dado los parámetros que tenemos, a partir del decil 8 es cuando la empresa va a obtener beneficios de implementar la política de enviar un correo. La utilidad esperada de mandar los correos a partir del decil 8 sería de `r sum(utilidad_decil[8:10])`. Sin focalizar, la utilidad que se obtendría es negativa e igual a `r utiliad_sin_focal`. Por lo tanto, es necesario concentrarse solo en aquellos usuarios que reaccionan mucho ante la campaña. El número total de usuarios que entrarían a la campaña es de 52,491 individuos. 
 
 
 16 (3pts). Haz una gráfica del la utilidad total vs q (personas que entran en la campaña) para DDML y CF
+
+```{r}
+# Gráfico de la utilidad del Causal Forest
+utilidad <- cate_causal_forest %>% 
+  arrange(-predictions) %>% 
+  mutate(beneficio = predictions * .325, costo = 0.99) %>% 
+  mutate(beneficio_total = cumsum(beneficio), costo_total = cumsum(costo)) %>% 
+  mutate(utilidad = beneficio_total - costo_total) %>% 
+  mutate(q = 1:n()) %>% 
+  select(q, utilidad)
+  
+
+plot_utilidad <- utilidad %>% 
+  ggplot(data = ., aes(x = q, y = utilidad)) +
+  geom_line(size = 1, color = "blue") +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(x = "Personas que entran a la campaña") +
+  annotate("point", x = 50328, y = 60852.9, color = "red") +
+  geom_text(aes(x = 50328, label = "DSd")) +
+  theme_minimal()
+    
+plotly::ggplotly(plot_utilidad)
+```
 

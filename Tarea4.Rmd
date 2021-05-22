@@ -531,9 +531,11 @@ Y <- crm %>% filter(training_sample == 1) %>%
   pull()
 
 # Matriz con las variables explicativas
-X <- sparse.model.matrix(~.+0-outcome_spend-mailing_indicator,
+X <- sparse.model.matrix(~.+0,
                          data = crm %>%
-                           filter(training_sample == 1)
+                           filter(training_sample == 1) %>% 
+                           select(-training_sample, -customer_id, 
+                                  -mailing_indicator, -outcome_spend)
                          )
 # Vector con los tratamientos
 W <- crm %>% filter(training_sample == 1) %>% 
@@ -541,10 +543,10 @@ W <- crm %>% filter(training_sample == 1) %>%
   pull()
 
 # Corremos el causal forest
-#forest <- causal_forest(X = X, Y = Y, W = W, num.trees = 750)
+forest <- causal_forest(X = X, Y = Y, W = W, num.trees = 750)
 
 # Guardar el causal forest para no tener que volverlo a correr
-# saveRDS(forest, "./causal_forest.rds")
+saveRDS(forest, "./causal_forest.rds")
 ```
 
 ```{r}

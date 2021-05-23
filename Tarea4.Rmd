@@ -56,7 +56,7 @@ library(broom)
 ```
 
 ```{r}
-ruta_trabajo <- "/Users/adrian_martinez/Dropbox/Maestría/Maestría Clases/Segundo_Semestre/economia_computacional/Causal-Machine-Learning"
+ruta_trabajo <- "C:/Users/Hp/Documents/EconomiaComputacional/Causal-Machine-Leraning"
 setwd(ruta_trabajo)
 
 load("Customer-Development-2015-1.RData")
@@ -437,6 +437,8 @@ as.data.frame(as.matrix(coef(modelo_9))) %>%
 10 (2 pts). Predice el CATE en la base de entrenamiento y en la base de validación. Como se ve la distribución del impacto de tratamiento en ambas? 
 
 ```{r}
+
+
 # Calculamos los residuales en la base de validación
 base_validacion <- crm %>% 
   filter(training_sample == 0) %>% 
@@ -525,6 +527,8 @@ cate %>%
 11 (2pts). Ahora vayamos al causal forest. Estima un causal forest en la base de entrenamiento (Estima 750 árboles)
 
 ```{r}
+
+
 # Vector con el outcome
 Y <- crm %>% filter(training_sample == 1) %>% 
   select(outcome_spend) %>% 
@@ -561,11 +565,19 @@ ate <- average_treatment_effect(forest,
 
 ```{r}
 # Estimación del ATE "real"
-ate_real <- base_training %>% 
+ate_real <- base_val %>% 
   lm(data =., outcome_spend ~ mailing_indicator)
 
+# Guardamos la X de validacion
+X_val <- sparse.model.matrix(~.+0,
+                         data = crm %>%
+                           filter(training_sample == 0) %>% 
+                           select(-training_sample, -customer_id, 
+                                  -mailing_indicator, -outcome_spend)
+                         )
+
 # Predecir el tau del causal forest
-cate_causal_forest <- predict(forest)
+cate_causal_forest <- predict(forest_val,newdata=X_val)
 
 # Generar deciles
 cate_causal_forest <- cate_causal_forest %>% 
@@ -576,11 +588,14 @@ tau_decil <- cate_causal_forest %>% group_by(decil) %>%
   summarise(mean_decil = mean(predictions)) %>% 
   select(decil, mean_decil)
 
-base_training$decil <- cate_causal_forest$decil
+base_val <- crm %>%
+                           filter(training_sample == 0) 
+
+base_val$decil <- cate_causal_forest$decil
 
 # Genera un data frame con el coeficiente estimado (ATE) para cada decil
 coefs <- map_dfr(1:10, function(x){
-  base_training %>% 
+  base_val %>% 
     filter(decil == {{x}}) %>% 
     lm(data = ., outcome_spend ~ mailing_indicator) %>% 
     coef()
@@ -641,12 +656,12 @@ Campaña con base en el causal forest:
 ```{r}
 # Sin focalizar
 costo <- 250000 * 0.99
-beneficio <- 2.74 * 250000 * .325
+beneficio <- 2.72 * 250000 * .325
 (utilidad_sin_focal <- beneficio - costo)
 
 # Para el decil más alto
 utilidad_decil <- map_dbl(1:10, function(x){
-  n <- base_training %>% 
+  n <- base_val %>% 
     count(decil) %>% 
     filter(decil == {{x}}) %>% 
     pull()
@@ -663,7 +678,7 @@ utilidad_decil <- map_dbl(1:10, function(x){
 )
 
 
-n_campana <- base_training %>% 
+n_campana <- base_val %>% 
   count(decil) %>% 
   filter(decil >= 8) %>% 
   summarise(sum(.))
@@ -673,10 +688,12 @@ as.data.frame(utilidad_decil) %>%
   kable(., col.names = c("Utilidad", "Decil"))
 ```
 
-En la tabla anterior se puede observar que dado los parámetros que tenemos, a partir del decil 8 es cuando la empresa va a obtener beneficios de implementar la política de enviar un correo. La utilidad esperada de mandar los correos a partir del decil 8 sería de `r sum(utilidad_decil[8:10])`. Sin focalizar, la utilidad que se obtendría es negativa e igual a `r utiliad_sin_focal`. Por lo tanto, es necesario concentrarse solo en aquellos usuarios que reaccionan mucho ante la campaña. El número total de usuarios que entrarían a la campaña es de 52,491 individuos. 
+En la tabla anterior se puede observar que dado los parámetros que tenemos, a partir del decil 8 es cuando la empresa va a obtener beneficios de implementar la política de enviar un correo. La utilidad esperada de mandar los correos a partir del decil 8 sería de `r sum(utilidad_decil[8:10])`. Sin focalizar, la utilidad que se obtendría es negativa e igual a `r utiliad_sin_focal`. Por lo tanto, es necesario concentrarse solo en aquellos usuarios que reaccionan mucho ante la campaña. El número total de usuarios que entrarían a la campaña es de 75,000 individuos i.e. el 30\% de los usuarios. 
 
 
 16 (3pts). Haz una gráfica del la utilidad total vs q (personas que entran en la campaña) para DDML y CF
+
+Al graficar se utilizaron los resultados de la base de validación. 
 
 ```{r}
 # Gráfico de la utilidad del Causal Forest
@@ -695,7 +712,7 @@ plot_utilidad <- utilidad %>%
   geom_hline(yintercept = 0) +
   geom_vline(xintercept = 0) +
   labs(x = "Personas que entran a la campaña") +
-  annotate("point", x = 50328, y = 60852.9, color = "red") +
+  #annotate("point", x = 50328, y = 60852.9, color = "red") +
   theme_minimal()
     
 plotly::ggplotly(plot_utilidad)

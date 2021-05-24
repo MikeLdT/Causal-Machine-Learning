@@ -363,8 +363,9 @@ ef_prom_3 <- lm(resid_monto~resid_treat,data = modelo)
 
 stargazer(ef_prom_1,ef_prom_2,ef_prom_3,type="text")
 ```
-FALTA INTERPRETACIÓN!!!
+La primera columna de la tabla muestra la regresión `spend_resid~treat_hat + treat`. El coeficiente de `treat` muestra el impacto del tratamiento en en la variación de `spend_resid` que no depende las X. Además, como incluímos `treat_hat`, los valores estimados del tratamiento, estamos controlando por el efecto de X en el tratamiento. Si bien es un coeficiente muy parecido a la regresión de la tercera columna que es entre los residuales, al incluir todos los controles por X aumenta el error estándar del coefciente del tratamiento, aunque podría deberse a la escala de ambas varibles. Sinembargo, lo grave es que al estar fuertemente correlacionadas `treat_hat` y `treat` podría ser que no logremos aislar compleamente el efecto del tratamiento.
 
+Para la segunda columna, notemos que si bien controlamos por el sesgo por variables omitidas del tratamiento no controlamos por las variables omitidas que afectan a `outcome_spend`. Finalmente, la especificación correcta es la de la columna 3 que controla por todo el sesgo por variables omitidas y nos permite inferir una relación causal entre las variables.
 
 8 (3pts). Cuáles son las variables más importantes para las nuisance functions $T_i = g(X_i)+v_i$ y $y_i=m(X_i)+\epsilon_i$? (Tip: toma las variables que tengan $\beta \neq 0$ en cada $k$ y haz un `inner_join`. De ahí muestra el promedio de los coeficientes) Interpreta la función $g(X_i)$, porque sale así?
 
@@ -494,6 +495,8 @@ y_val_1 <- predict(modelo_9, newdata = x)
 
 
 ```{r}
+
+
 # CATE entrenamiento
 cate <- x[base_training$mailing_indicator == 1, grepl("resid", colnames(x))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
 
@@ -522,11 +525,12 @@ cate %>%
 
 ```
 
+
 #### Causal Forest
 
 11 (2pts). Ahora vayamos al causal forest. Estima un causal forest en la base de entrenamiento (Estima 750 árboles)
 
-```{r}
+```{r,eval=F}
 
 
 # Vector con el outcome
@@ -564,8 +568,12 @@ ate <- average_treatment_effect(forest,
 12 (3pts). Cómo se distribuye el impacto de tratamiento? Cuál es el impacto de tratamiento (ATE)? Qué tanto se acerca al impacto de tratamiento "real"? Cómo se compara con el impacto estimado con el ddml simple?
 
 ```{r}
+
+base_validacion <- crm %>% 
+  filter(training_sample == 0) 
+
 # Estimación del ATE "real"
-ate_real <- base_val %>% 
+ate_real <- base_validacion %>% 
   lm(data =., outcome_spend ~ mailing_indicator)
 
 # Guardamos la X de validacion
@@ -577,7 +585,7 @@ X_val <- sparse.model.matrix(~.+0,
                          )
 
 # Predecir el tau del causal forest
-cate_causal_forest <- predict(forest_val,newdata=X_val)
+cate_causal_forest <- predict(forest,newdata=X_val)
 
 # Generar deciles
 cate_causal_forest <- cate_causal_forest %>% 
@@ -625,13 +633,66 @@ En la gráfica anterior se puede observar la distribución del ATE gracias a los
 
 13. Haz un scatter plot de las predicciones de ambos modelos? Hay alguna relación?
 
-```{r}
+Hay una relación cuadrática entre las predicciones de los modelos.
+
+```{r,echo=F}
+# CATE validacion
+cate_val <- x_val[, grepl("resid", colnames(x_val))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),]
+
+ggplot(data.frame(ddml=cate_val$V1,forest=cate_causal_forest$predictions),aes(x=ddml,y=forest)) +
+  geom_jitter()
 
 ```
 
 
 14 (4pts). Evalúa el poder predictivo de cada modelo (OOS). Esto se hace por modelo: Divide la muestra en 10 partes con base en el score de ddml. Para cada parte, estima el impacto de tratamiento vía una regresión y saca el promedio del score. Valida si para los grupos que dice el score el impacto será más grande, el coeficiente de la regresión es. Cómo se ven los modelos? Cuál parece ser mejor?
 
+```{r,results='asis'}
+# CATE validacion
+cate_val <- x_val[treat_validacion == 1, grepl("resid", colnames(x_val))] %*% unlist(coef(modelo_9))[grepl("resid", rownames(coef(modelo_9))),] %>% 
+  as.matrix() %>% 
+  as.data.frame()
+ 
+# Generar deciles
+cate_val <- cate_val %>% 
+  mutate(decil = ntile(V1, 10))
+# Calcula el impacto promedio dentro de cada decil
+tau_decil <- cate_val %>% group_by(decil) %>% 
+  summarise(mean_decil = mean(V1)) %>% 
+  select(decil, mean_decil)
+
+base_val <- crm %>%
+                           filter(training_sample == 0) 
+
+base_val$decil_ddml <- cate_val$decil
+
+# Genera un data frame con el coeficiente estimado (ATE) para cada decil
+coefs_ddml <- map_dfr(1:10, function(x){
+  base_val %>% 
+    filter(decil_ddml == {{x}}) %>% 
+    lm(data = ., outcome_spend ~ mailing_indicator) %>% 
+    coef()
+}
+) 
+
+coefs_ddml$decil <- 1:10
+coefs_ddml <- coefs_ddml[-1]
+
+kable(coefs_ddml, format = "html")
+
+
+
+
+
+```
+
+```{r}
+coefs$decil <- 1:10
+
+kable(coefs,format = "html")
+```
+
+En cambio la estimación del Causal Forest tiene mucho más sentido y empata bastante con las regresiones. En este sentido, por motivos de implementabilidad, nos parece mucho mejor el causal forest. Tras probar el modelo, los resultados distan de lo que esperábamos a priori. 
 
 15 (6 pts). Construye una estrategia de focalización a nivel usuario con base a los resultados de cada modelo. Considera lo siguiente: 
 
